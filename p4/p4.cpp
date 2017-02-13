@@ -3,6 +3,7 @@
 #include <numeric>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "utils/utils.h"
@@ -61,6 +62,7 @@ int main()
 {
     Profile([]() { Print(Simple<int>(2)); });
     Profile([]() { Print(Simple<int>(3)); });
+    //Profile([]() { Print(Simple<long long>(4)); });
 
     return 0;
 }
