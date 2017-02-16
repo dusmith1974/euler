@@ -1,13 +1,19 @@
-// thread.cpp : Defines the entry point for the console application.
-//
+//This chapter covers
+//Starting threads, and various ways of specifying
+//code to run on a new thread
+//Waiting for a thread to finish versus leaving it
+//to run
+//Uniquely identifying threads
 
 #include "stdafx.h"
 
+#include <algorithm>
 #include <assert.h>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 void fn()
 {
@@ -72,6 +78,83 @@ private:
     std::thread& t;
 };
 
+// Improvement on thread_guard - takes ownership so don't have to worry about guard outliving thread
+// and prevents joins or detaches by others
+class scoped_thread
+{
+private:
+    std::thread t;
+
+public:
+    explicit scoped_thread(std::thread t_) : t(std::move(t_))
+    {
+        if (!t.joinable())
+            throw std::logic_error("No thread");
+    }
+
+    ~scoped_thread()
+    {
+        t.join();
+    }
+
+    scoped_thread(scoped_thread const&) = delete;
+    scoped_thread& operator=(scoped_thread const&) = delete;
+};
+
+// call like
+// scoped_thread t(std::thread(func(some_local_state)));
+
+// (naive) parallel accumulate
+// hardware_concurrency = #cores (hint) may be 0
+// doesn't handle exceptions - see ch8
+template<typename Iterator, typename T>
+struct accumulate_block
+{
+    void operator()(Iterator first, Iterator last, T& result)
+    {
+        result = std::accumulate(first, last, result);
+    }
+};
+
+template<typename Iterator, typename T>
+T parallel_accumulate(Iterator first, Iterator last, T init)
+{
+    unsigned long const length = std::distance(first, last);
+
+    if (!length)
+        return init;
+
+    unsigned long const min_per_thread = 25;
+    unsigned long const max_threads =
+        (length + min_per_thread - 1) / min_per_thread;
+    unsigned long const hardware_threads =
+        std::thread::hardware_concurrency();
+    unsigned long const num_threads =
+        std::min(hardware_threads != 0 ? hardware_threads : 2, max_threads);
+    unsigned long const block_size = length / num_threads;
+
+    std::vector<T> results(num_threads);
+    std::vector<std::thread> threads(num_threads - 1);
+    Iterator block_start = first;
+
+    for (unsigned long i = 0; i < (num_threads - 1); ++i)
+    {
+        Iterator block_end = block_start;
+        std::advance(block_end, block_size);
+        threads[i] = std::thread(
+            accumulate_block<Iterator, T>(),
+            block_start, block_end, std::ref(results[i]));
+        block_start = block_end;
+    }
+    accumulate_block<Iterator, T>()(
+        block_start, last, results[num_threads - 1]);
+
+    std::for_each(threads.begin(), threads.end(),
+        std::mem_fn(&std::thread::join));
+
+    return std::accumulate(results.begin(), results.end(), init);
+}
+
 int main()
 {
     std::string str = "string passed as param";
@@ -131,8 +214,21 @@ int main()
     //    f(std::move(t));
     //}
     
-
+    // subdivide work of an algorithm by spawning multiple threads
+    // step towards a thread group/automated management
+    // doesn't handle return values - see ch4
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < 5; ++i)
+    {
+        threads.push_back(std::thread(fn2, std::string("multiple threads.\n")));
+    }
+    std::for_each(threads.begin(), threads.end(), std::mem_fn(&std::thread::join));
     
+    // thread ids
+    // t.get_id() or this_thread::get_ifd()
+    // returns id of running thread or not any thread
+    // can be used for storing in maps too
+    // used to specialize algorithms, eg if this_thread.get_id() == master_thread then do something extra
 
 
 
